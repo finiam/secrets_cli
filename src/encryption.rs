@@ -48,7 +48,8 @@ impl NonceSequence for OneNonceSequence {
 //}
 //
 const CREDENTIAL_LEN: usize = digest::SHA256_OUTPUT_LEN;
-fn derive_key(
+
+pub fn derive_key(
     password: String,
 ) -> Result<([u8; CREDENTIAL_LEN], [u8; CREDENTIAL_LEN]), Unspecified> {
     //const salt = window.crypto.getRandomValues(new Uint8Array(16));
@@ -85,7 +86,7 @@ fn derive_key(
     Ok((salt, pbkdf2_hash))
 }
 
-fn encrypt_data(plain_text: String) -> Result<(), Unspecified> {
+pub fn encrypt_data(plain_text: String) -> Result<String, Unspecified> {
     let password = "123ABCDE".to_string();
 
     let (salt, hash): ([u8; 32], [u8; 32]) = derive_key(password).unwrap();
@@ -93,9 +94,10 @@ fn encrypt_data(plain_text: String) -> Result<(), Unspecified> {
     let content = plain_text.as_bytes().to_vec();
 
     let mut in_out = content.clone();
-    for _ in 0..AES_256_GCM.tag_len() {
-        in_out.push(0);
-    }
+    in_out.resize(content.len() + AES_256_GCM.tag_len(), 0);
+    //for _ in 0..AES_256_GCM.tag_len() {
+    //    in_out.push(0);
+    //}
     // Opening key used to decrypt data
     //NonceSequence.
     //let opening_key =
@@ -120,13 +122,13 @@ fn encrypt_data(plain_text: String) -> Result<(), Unspecified> {
     //let sealing_key = SealingKey::new(&AES_256_GCM, &key).unwrap();
     //
     sealing_key
-        .seal_in_place_append_tag(Aad::from(vec![1, 2, 3]), &mut in_out)
+        .seal_in_place_append_tag(Aad::empty(), &mut in_out)
         .unwrap();
 
     let decrypted_data = opening_key
-        .open_in_place(Aad::from(vec![1, 2, 3]), &mut in_out)
+        .open_in_place(Aad::from(vec![]), &mut in_out)
         .unwrap();
-    println!("{:?}", String::from_utf8(decrypted_data.to_vec()).unwrap());
+    println!("{}", String::from_utf8(decrypted_data.to_vec()).unwrap());
 
     // Random data must be used only once per encryption
 
@@ -147,5 +149,19 @@ fn encrypt_data(plain_text: String) -> Result<(), Unspecified> {
     //    password.as_bytes(),
     //    &pbkdf2_hash,
     //);
-    Ok(())
+    //
+    Ok(String::from_utf8(decrypted_data.to_vec()).unwrap())
+}
+
+fn decrypt_data(string: String) {
+    let password = "123ABCDE".to_string();
+
+    let (salt, hash): ([u8; 32], [u8; 32]) = derive_key(password).unwrap();
+    let key = UnboundKey::new(&AES_256_GCM, &hash).unwrap();
+    let mut opening_key: OpeningKey<OneNonceSequence> = BoundKey::new(key, nonce_sequence);
+
+    let decrypted_data = opening_key
+        .open_in_place(Aad::empty(), &mut in_out)
+        .unwrap();
+    println!("{}", String::from_utf8(decrypted_data.to_vec()).unwrap());
 }

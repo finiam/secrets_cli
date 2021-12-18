@@ -1,5 +1,6 @@
-mod encryption;
+mod encryption2;
 
 fn main() {
-    println!("Hello, world!");
+    //encryption::encrypt_data("bla".to_string()).expect("failed");
+    println!("{:?}", decrypt());
 }
