@@ -1,167 +1,96 @@
-//use data_encoding::HEXUPPER;
-use ring::error::Unspecified;
-use ring::rand::SecureRandom;
-use ring::{aead::*, digest, pbkdf2, rand};
-use std::num::NonZeroU32;
-struct OneNonceSequence(Option<Nonce>);
+use aes_gcm::aead::{Aead, Payload};
+use aes_gcm::{Aes256Gcm, NewAead, Nonce};
+use pbkdf2::{
+    password_hash::{PasswordHasher, SaltString},
+    Params, Pbkdf2,
+};
+use rand::{self, Rng};
 
-impl OneNonceSequence {
-    /// Constructs the sequence allowing `advance()` to be called
-    /// `allowed_invocations` times.
-    fn new(nonce: Nonce) -> Self {
-        Self(Some(nonce))
-    }
+const CHARSET: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const PASSWORD_LEN: usize = 32;
+
+fn derive_key(password: &[u8], salt: &[u8]) -> Vec<u8> {
+    let salt = SaltString::b64_encode(salt).unwrap();
+
+    let params = Params {
+        rounds: 250000,
+        output_length: 32,
+    };
+
+    let password_hash = Pbkdf2
+        .hash_password_customized(password, None, None, params, &salt)
+        .expect("Failed to hash passowrd");
+
+    password_hash.hash.expect("No hash").as_bytes().to_vec()
 }
 
-impl NonceSequence for OneNonceSequence {
-    fn advance(&mut self) -> Result<Nonce, Unspecified> {
-        self.0.take().ok_or(Unspecified)
-    }
-}
-//use ring::{aead, digest, pbkdf2};
-//use std::num::NonZeroU32;
+fn encrypt(data: &[u8], iv: &[u8], aes_key: &[u8]) -> Vec<u8> {
+    let payload = Payload::from(data);
 
-//static PBKDF2_ALG: pbkdf2::Algorithm = pbkdf2::PBKDF2_HMAC_SHA256;
-//const CREDENTIAL_LEN: usize = digest::SHA256_OUTPUT_LEN;
-//pub type Credential = [u8; CREDENTIAL_LEN];
+    // if you want to create cipher with key
+    //let key = Key::from_slice(aes_key);
+    //let cipher = Aes256Gcm::new(key);
+    let cipher =
+        Aes256Gcm::new_from_slice(aes_key).expect("Failed to create cipher with provided aes key");
 
-//fn salt(username: &[u8], db_salt_component: [u8; 16]) -> Vec<u8> {
-//    let mut salt = Vec::with_capacity(db_salt_component.len() + username.len());
-//    salt.extend(db_salt_component.as_ref());
-//    salt.extend(username);
-//    salt
-//}
-//
-//fn encrypt(blob: &[u8]) {
-//    let db_salt_component = [
-//        // This value was generated from a secure PRNG.
-//        0xd6, 0x26, 0x98, 0xda, 0xf4, 0xdc, 0x50, 0x52, 0x24, 0xf2, 0x27, 0xd1, 0xfe, 0x39, 0x01,
-//        0x8a,
-//    ];
-//    let mut to_store: Credential = [0u8; CREDENTIAL_LEN];
-//
-//    let salt = salt(blob, db_salt_component);
-//    let pbkdf2_iterations = NonZeroU32::new(100_000).unwrap();
-//    pbkdf2::derive(PBKDF2_ALG, pbkdf2_iterations, &salt, blob, &mut to_store);
-//
-//    let aead::Algorithm::SealingKey();
-//}
-//
-const CREDENTIAL_LEN: usize = digest::SHA256_OUTPUT_LEN;
+    let nonce = Nonce::from_slice(iv);
 
-pub fn derive_key(
-    password: String,
-) -> Result<([u8; CREDENTIAL_LEN], [u8; CREDENTIAL_LEN]), Unspecified> {
-    //const salt = window.crypto.getRandomValues(new Uint8Array(16));
-    //   const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    //   const passwordKey = await getPasswordKey(passphrase);
-    //   const aesKey = await deriveKey(passwordKey, salt, ['encrypt']);
-    //   const encryptedContent = await window.crypto.subtle.encrypt(
-    //     {
-    //       name: 'AES-GCM',
-    //       iv: iv
-    //     },
-    //     aesKey,
-    //     new TextEncoder().encode(plainText)
-    //   );
+    let encrypt_bytes = cipher
+        .encrypt(nonce, payload)
+        .expect("failed to decrypt bytes");
 
-    let mut salt = [0u8; CREDENTIAL_LEN];
-    let mut pbkdf2_hash = [0u8; CREDENTIAL_LEN];
-    let iterations = NonZeroU32::new(250000).unwrap();
-
-    let rng = rand::SystemRandom::new();
-    rng.fill(&mut salt)?;
-
-    pbkdf2::derive(
-        pbkdf2::PBKDF2_HMAC_SHA256,
-        iterations,
-        &salt,
-        password.as_bytes(),
-        &mut pbkdf2_hash,
-    );
-
-    println!("Salt: {:?}", salt);
-    println!("PBKDF2 hash: {:?}", pbkdf2_hash);
-
-    Ok((salt, pbkdf2_hash))
+    encrypt_bytes
 }
 
-pub fn encrypt_data(plain_text: String) -> Result<String, Unspecified> {
-    let password = "123ABCDE".to_string();
+pub fn generate_pass_phrase() -> String {
+    let mut rng = rand::thread_rng();
 
-    let (salt, hash): ([u8; 32], [u8; 32]) = derive_key(password).unwrap();
+    let password: String = (0..PASSWORD_LEN)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect();
 
-    let content = plain_text.as_bytes().to_vec();
+    password
+}
 
-    let mut in_out = content.clone();
-    in_out.resize(content.len() + AES_256_GCM.tag_len(), 0);
-    //for _ in 0..AES_256_GCM.tag_len() {
-    //    in_out.push(0);
-    //}
-    // Opening key used to decrypt data
-    //NonceSequence.
-    //let opening_key =
-    //    OpeningKey::new(&AES_256_GCM, NonceSequence::assume_unique_for_key(&key).into()).unwrap();
-
-    let mut nonce = [0; 12];
-
+pub fn encrypt_data(plain_text: &str, pass_phrase: &str) -> String {
+    //let mut salt = vec![16];
+    //let mut iv = vec![12];
+    let salt = rand::thread_rng().gen::<[u8; 16]>().to_vec();
+    let iv = rand::thread_rng().gen::<[u8; 12]>().to_vec();
     // Fill nonce with random data
-    let rand = rand::SystemRandom::new();
-    rand.fill(&mut nonce).unwrap();
-    //iv === nonce
-    // Sealing key used to encrypt data
-    let key = UnboundKey::new(&AES_256_GCM, &hash).unwrap();
-    let key2 = UnboundKey::new(&AES_256_GCM, &hash).unwrap();
-    let nonce_unique = Nonce::assume_unique_for_key(nonce);
-    let nonce_unique2 = Nonce::assume_unique_for_key(nonce);
-    let nonce_sequence = OneNonceSequence::new(nonce_unique);
-    let nonce_sequence2 = OneNonceSequence::new(nonce_unique2);
-    let mut sealing_key: SealingKey<OneNonceSequence> = BoundKey::new(key, nonce_sequence);
-    let mut opening_key: OpeningKey<OneNonceSequence> = BoundKey::new(key2, nonce_sequence2);
+    //let rand = rand::Fill();
+    //rand.fill(&mut salt);
+    //rand.fill(&mut iv);
 
-    //let sealing_key = SealingKey::new(&AES_256_GCM, &key).unwrap();
-    //
-    sealing_key
-        .seal_in_place_append_tag(Aad::empty(), &mut in_out)
-        .unwrap();
+    let password_key = pass_phrase.as_bytes();
 
-    let decrypted_data = opening_key
-        .open_in_place(Aad::from(vec![]), &mut in_out)
-        .unwrap();
-    println!("{}", String::from_utf8(decrypted_data.to_vec()).unwrap());
+    let aes_key = derive_key(password_key, &salt);
 
-    // Random data must be used only once per encryption
+    let data = plain_text.as_bytes();
 
-    // Encrypt data into in_out variable
-    //    let output_size = seal_in_place(
-    //        &sealing_key,
-    //        &nonce,
-    //        &additional_data,
-    //        &mut in_out,
-    //        AES_256_GCM.tag_len(),
-    //    )
-    //    .unwrap();
+    let output = encrypt(data, &iv, &aes_key);
+    let output_bytes = output.to_vec();
 
-    //let should_succeed = pbkdf2::verify(
-    //    pbkdf2::PBKDF2_HMAC_SHA512,
-    //    n_iter,
-    //    &salt,
-    //    password.as_bytes(),
-    //    &pbkdf2_hash,
-    //);
-    //
-    Ok(String::from_utf8(decrypted_data.to_vec()).unwrap())
+    let content_buffer = [salt, iv, output_bytes].concat();
+
+    base64::encode(content_buffer)
 }
 
-fn decrypt_data(string: String) {
-    let password = "123ABCDE".to_string();
+#[cfg(test)]
+mod test {
+    use crate::decryption::decrypt_data;
+    use crate::encryption::{encrypt_data, generate_pass_phrase};
 
-    let (salt, hash): ([u8; 32], [u8; 32]) = derive_key(password).unwrap();
-    let key = UnboundKey::new(&AES_256_GCM, &hash).unwrap();
-    let mut opening_key: OpeningKey<OneNonceSequence> = BoundKey::new(key, nonce_sequence);
+    #[test]
+    fn encrypt_data_test() {
+        let pass_phrase = generate_pass_phrase();
+        let content = "Finiam".to_owned();
 
-    let decrypted_data = opening_key
-        .open_in_place(Aad::empty(), &mut in_out)
-        .unwrap();
-    println!("{}", String::from_utf8(decrypted_data.to_vec()).unwrap());
+        let encrypted = encrypt_data(&content, &pass_phrase);
+
+        assert_eq!(decrypt_data(&encrypted, &pass_phrase), content);
+    }
 }

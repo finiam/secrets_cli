@@ -1,5 +1,5 @@
-//mod encryption2;
 mod decryption;
+mod encryption;
 fn main() {
     //encryption::encrypt_data("bla".to_string()).expect("failed");
     //println!("{:?}", decrypt());
@@ -8,11 +8,13 @@ fn main() {
 
     // https://secrets.finiam.com/api/secrets/Z1o3cFRUNWVtaGM9
 
-    println!(
-        "{:?}",
-        decryption::decrypt_data(
-            "wJDT3o+k+kdjWh7Dq5xn8QjvKgE96AbKswMxr+d9dpVuiukmsxcILq3EbWAj4LGu2RNkog==",
-            "3EP1sqZP2G6bA8tmpVWlDSCyy4uPb1Cm"
-        )
-    );
+    let pass_phrase = encryption::generate_pass_phrase();
+    let content = "Finiam".to_owned();
+
+    let encrypted = encryption::encrypt_data(&content, &pass_phrase);
+
+    println!("{:?}", content);
+    println!("{:?}", pass_phrase);
+    println!("{:?}", encrypted);
+    println!("{:?}", decryption::decrypt_data(&encrypted, &pass_phrase));
 }
