@@ -60,7 +60,7 @@ jobs:
         with:
           use-cross: ${{ matrix.job.use-cross }}
           command: build
-          args: --verbose --target ${{ matrix.job.target }} --release
+          args: --verbose --release
 
       - name: Run tests
         uses: actions-rs/cargo@v1
