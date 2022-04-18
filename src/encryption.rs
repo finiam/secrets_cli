@@ -35,11 +35,9 @@ fn encrypt(data: &[u8], iv: &[u8], aes_key: &[u8]) -> Vec<u8> {
 
     let nonce = Nonce::from_slice(iv);
 
-    let encrypt_bytes = cipher
+    cipher
         .encrypt(nonce, payload)
-        .expect("failed to decrypt bytes");
-
-    encrypt_bytes
+        .expect("failed to decrypt bytes")
 }
 
 pub fn generate_pass_phrase() -> String {
@@ -66,9 +64,8 @@ pub fn encrypt_data(plain_text: &str, pass_phrase: &str) -> String {
     let data = plain_text.as_bytes();
 
     let output = encrypt(data, &iv, &aes_key);
-    let output_bytes = output.to_vec();
 
-    let content_buffer = [salt, iv, output_bytes].concat();
+    let content_buffer = [salt, iv, output].concat();
 
     base64::encode(content_buffer)
 }

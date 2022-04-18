@@ -35,9 +35,7 @@ fn decrypt(data: &[u8], iv: &[u8], aes_key: &[u8]) -> String {
         .decrypt(nonce, payload)
         .expect("failed to decrypt bytes");
 
-    let plaintext = String::from_utf8(decrypt_bytes).expect("Failed to convert bytes to plaintext");
-
-    plaintext
+    String::from_utf8(decrypt_bytes).expect("Failed to convert bytes to plaintext")
 }
 
 pub fn decrypt_data(encrypted_text: &str, pass_phrase: &str) -> String {
@@ -48,11 +46,9 @@ pub fn decrypt_data(encrypted_text: &str, pass_phrase: &str) -> String {
     let data = &encrypted_data_buffer[28..];
     let password_key = pass_phrase.as_bytes();
 
-    let aes_key = derive_key(password_key, &salt);
+    let aes_key = derive_key(password_key, salt);
 
-    let output = decrypt(data, iv, &aes_key);
-
-    output
+    decrypt(data, iv, &aes_key)
 }
 
 #[cfg(test)]

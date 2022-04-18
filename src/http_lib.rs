@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 
 pub const API_URL: &str = "https://finiam-secrets.herokuapp.com";
 
@@ -11,8 +11,14 @@ pub struct CreateRoom {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Room {
+pub struct RoomID {
     room_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RoomSecret {
+    has_passphrase: bool,
+    secret: String,
 }
 
 pub struct APIClient {
@@ -31,14 +37,10 @@ impl APIClient {
         secret: String,
         expiry: u32,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        let params = CreateRoom {
-            expiry: expiry,
-            secret: secret,
-        };
-
+        let params = CreateRoom { expiry, secret };
         let url = format!("{}/api/secrets", API_URL);
 
-        let room: Room = self
+        let room: RoomID = self
             .client
             .post(url)
             .json(&params)
@@ -50,9 +52,36 @@ impl APIClient {
         Ok(room.room_id)
     }
 
-    //pub async fn check_if_room_exists(&self, room: &str) -> bool {}
+    pub async fn check_if_room_exists(
+        &self,
+        room_id: &str,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let url = format!(
+            "{url}/api/secrets/{room_id}",
+            url = API_URL,
+            room_id = room_id
+        );
 
-    //pub async fn get_room_secret(&self, room: &str) -> String {}
+        let response = self.client.head(url).send().await?;
+
+        Ok(response.status() == StatusCode::OK)
+    }
+
+    pub async fn get_room_secret(
+        &self,
+        room_id: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let url = format!(
+            "{url}/api/secrets/{room_id}",
+            url = API_URL,
+            room_id = room_id
+        );
+
+        let response = self.client.get(url).send().await?;
+        let room: RoomSecret = response.json().await?;
+
+        Ok(room.secret)
+    }
 
     //pub async fn delete_secret(&self, room: &str) {}
 
