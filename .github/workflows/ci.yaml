@@ -60,7 +60,7 @@ jobs:
         with:
           use-cross: ${{ matrix.job.use-cross }}
           command: build
-          args: --verbose
+          args: --verbose --target ${{ matrix.job.target }} --release
 
       - name: Run tests
         uses: actions-rs/cargo@v1
@@ -68,6 +68,24 @@ jobs:
           use-cross: ${{ matrix.job.use-cross }}
           command: test
           args: --verbose
+
+      - name: Get tag version
+        id: get_version
+        run: echo ::set-output name=VERSION::``${GITHUB_REF#refs/tags/}``
+        shell: bash
+
+      - name: Pack binaries
+        run: tar -C ./target/${{ matrix.job.target }}/release -czvf secrets_cli-${{ steps.get_version.outputs.VERSION }}-${{ matrix.job.target }}-${{ matrix.job.target_cpu }}.tar.gz secrets_cli jcli
+
+      - name: Upload binaries to release
+        uses: svenstaro/upload-release-action@v1-release
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: secrets_cli-${{ steps.get_version.outputs.VERSION }}-${{ matrix.job.target }}-${{ matrix.job.target_cpu }}.*
+          asset_name: secrets_cli-${{ steps.get_version.outputs.VERSION }}-${{ matrix.job.target }}-${{ matrix.job.target_cpu }}
+          tag: ${{ github.ref }}
+          file_glob: true
+          overwrite: true
 
   clippy:
     name: Lint with clippy
