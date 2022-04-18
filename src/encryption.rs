@@ -56,14 +56,8 @@ pub fn generate_pass_phrase() -> String {
 }
 
 pub fn encrypt_data(plain_text: &str, pass_phrase: &str) -> String {
-    //let mut salt = vec![16];
-    //let mut iv = vec![12];
     let salt = rand::thread_rng().gen::<[u8; 16]>().to_vec();
     let iv = rand::thread_rng().gen::<[u8; 12]>().to_vec();
-    // Fill nonce with random data
-    //let rand = rand::Fill();
-    //rand.fill(&mut salt);
-    //rand.fill(&mut iv);
 
     let password_key = pass_phrase.as_bytes();
 
