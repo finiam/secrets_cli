@@ -3,14 +3,26 @@ name: Rust testing
 on:
   push:
     branches: [master]
+    tags:
+      - "v*.*.*"
   pull_request:
     types: [opened, synchronize]
+    tags:
+      - "pr*.*.*"
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag_name: ${{ steps.release_info.outputs.tag_name }}
+      release_name: ${{ steps.release_info.outputs.release_name }}
+
   build:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
