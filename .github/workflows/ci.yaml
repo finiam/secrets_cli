@@ -3,18 +3,114 @@ name: Rust testing
 on:
   push:
     branches: [master]
+    tags:
+      - "v*.*.*"
   pull_request:
     types: [opened, synchronize]
+    tags:
+      - "prs*.*.*"
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.job.target }} (${{ matrix.job.os }})
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - os: ubuntu-latest
+            platform: linux
+            target: x86_64-unknown-linux-gnu
+            arch: amd64
+            svm_target_platform: linux-amd64
+          - os: ubuntu-latest
+            platform: linux
+            target: aarch64-unknown-linux-gnu
+            arch: arm64
+            svm_target_platform: linux-aarch64
+          - os: macos-latest
+            platform: darwin
+            target: x86_64-apple-darwin
+            arch: amd64
+            svm_target_platform: macosx-amd64
+          - os: macos-latest
+            platform: darwin
+            target: aarch64-apple-darwin
+            arch: arm64
+            svm_target_platform: macosx-aarch64
+    #outputs:
+    #  tag_name: ${{ steps.release_info.outputs.tag_name }}
+    #  release_name: ${{ steps.release_info.outputs.release_name }}
+    #  changelog: ${{ steps.build_changelog.outputs.changelog }}
 
     steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Compute release name and tag
+        id: release_info
+        run: |
+          if [[ $IS_NIGHTLY ]]; then
+            echo "::set-output name=tag_name::nightly-${GITHUB_SHA}"
+            echo "::set-output name=release_name::Nightly ($(date '+%Y-%m-%d'))"
+          else
+            echo "::set-output name=tag_name::${GITHUB_REF_NAME}"
+            echo "::set-output name=release_name::${GITHUB_REF_NAME}"
+          fi
+      # Creates a `nightly-SHA` tag for this specific nightly
+      # This tag is used for this specific nightly version's release
+      # which allows users to roll back. It is also used to build
+      # the changelog.
+      - name: Create build-specific nightly tag
+        if: ${{ env.IS_NIGHTLY }}
+        uses: actions/github-script@v5
+        env:
+          TAG_NAME: ${{ steps.release_info.outputs.tag_name }}
+        with:
+          script: |
+            const createTag = require('./.github/scripts/create-tag.js')
+            await createTag({ github, context }, process.env.TAG_NAME)
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.job.target }}
+          override: true
+
       - uses: actions/checkout@v3
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.job.target }}
+          override: true
+
+      - uses: Swatinem/rust-cache@v1
+        with:
+          cache-on-failure: true
+
+      - name: Apple M1 setup
+        if: ${{ matrix.job.target == 'aarch64-apple-darwin' }}
+        run: |
+          echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+
+      - name: Linux ARM setup
+        if: ${{ matrix.job.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Cache cargo registry
         uses: actions/cache@v1
@@ -28,8 +124,80 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Build binaries
+        uses: actions-rs/cargo@v1
+        env:
+          SVM_TARGET_PLATFORM: ${{ matrix.job.svm_target_platform }}
+        with:
+          command: build
+          args: --release --bins --target ${{ matrix.job.target }}
 
       - name: Run tests
-        run: cargo test --verbose
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.job.use-cross }}
+          command: test
+          args: --verbose
+
+      - name: Get tag version
+        id: get_version
+        run: echo ::set-output name=VERSION::``${GITHUB_REF#refs/tags/}``
+        shell: bash
+
+      - name: Archive binaries
+        id: artifacts
+        env:
+          PLATFORM_NAME: ${{ matrix.job.platform }}
+          TARGET: ${{ matrix.job.target }}
+          ARCH: ${{ matrix.job.arch }}
+          VERSION_NAME: ${{ (env.IS_NIGHTLY && 'nightly') || needs.prepare.outputs.tag_name }}
+        run: |
+          if [ "$PLATFORM_NAME" == "linux" ]; then
+            tar -czvf "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/release secrets_cli
+            echo "::set-output name=file_name::secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz"
+          elif [ "$PLATFORM_NAME" == "darwin" ]; then
+            # We need to use gtar here otherwise the archive is corrupt.
+            # See: https://github.com/actions/virtual-environments/issues/2619
+            gtar -czvf "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/release secrets_cli
+            echo "::set-output name=file_name::secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz"
+          else
+            cd ./target/${TARGET}/release
+            7z a -tzip "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" secrets_cli.exe
+            mv "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" ../../../
+            echo "::set-output name=file_name::secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip"
+          fi
+        shell: bash
+
+      # Creates the release for this specific version
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ needs.prepare.outputs.release_name }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          prerelease: ${{ env.IS_NIGHTLY }}
+          files: |
+            ${{ steps.artifacts.outputs.file_name }}
+
+  clippy:
+    name: Lint with clippy
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -Dwarnings
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          components: clippy
+      - run: cargo clippy --workspace --all-targets --verbose
+      - run: cargo clippy --workspace --all-targets --verbose --no-default-features
+      - run: cargo clippy --workspace --all-targets --verbose --all-features
+
+  rustfmt:
+    name: Verify code formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: hecrj/setup-rust-action@v1
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
