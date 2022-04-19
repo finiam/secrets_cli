@@ -99,18 +99,39 @@ jobs:
         run: echo ::set-output name=VERSION::``${GITHUB_REF#refs/tags/}``
         shell: bash
 
-      - name: Pack binaries
-        run: tar -C ./target/${{ matrix.job.target }}/release -czvf secrets_cli-${{ steps.get_version.outputs.VERSION }}-${{ matrix.job.target }}-${{ matrix.job.target_cpu }}.tar.gz secrets_cli jcli
+      - name: Archive binaries
+        id: artifacts
+        env:
+          PLATFORM_NAME: ${{ matrix.job.platform }}
+          TARGET: ${{ matrix.job.target }}
+          ARCH: ${{ matrix.job.arch }}
+          VERSION_NAME: ${{ (env.IS_NIGHTLY && 'nightly') || needs.prepare.outputs.tag_name }}
+        run: |
+          if [ "$PLATFORM_NAME" == "linux" ]; then
+            tar -czvf "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/release secrets_cli
+            echo "::set-output name=file_name::secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz"
+          elif [ "$PLATFORM_NAME" == "darwin" ]; then
+            # We need to use gtar here otherwise the archive is corrupt.
+            # See: https://github.com/actions/virtual-environments/issues/2619
+            gtar -czvf "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz" -C ./target/${TARGET}/release secrets_cli
+            echo "::set-output name=file_name::secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.tar.gz"
+          else
+            cd ./target/${TARGET}/release
+            7z a -tzip "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" secrets_cli.exe
+            mv "secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip" ../../../
+            echo "::set-output name=file_name::secrets_cli_${VERSION_NAME}_${PLATFORM_NAME}_${ARCH}.zip"
+          fi
+        shell: bash
 
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v1-release
+      # Creates the release for this specific version
+      - name: Create release
+        uses: softprops/action-gh-release@v1
         with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: secrets_cli-${{ steps.get_version.outputs.VERSION }}-${{ matrix.job.target }}-${{ matrix.job.target_cpu }}.*
-          asset_name: secrets_cli-${{ steps.get_version.outputs.VERSION }}-${{ matrix.job.target }}-${{ matrix.job.target_cpu }}
-          tag: ${{ github.ref }}
-          file_glob: true
-          overwrite: true
+          name: ${{ needs.prepare.outputs.release_name }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          prerelease: ${{ env.IS_NIGHTLY }}
+          files: |
+            ${{ steps.artifacts.outputs.file_name }}
 
   clippy:
     name: Lint with clippy
