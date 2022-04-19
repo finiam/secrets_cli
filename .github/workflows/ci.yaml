@@ -22,10 +22,50 @@ jobs:
     outputs:
       tag_name: ${{ steps.release_info.outputs.tag_name }}
       release_name: ${{ steps.release_info.outputs.release_name }}
+      changelog: ${{ steps.build_changelog.outputs.changelog }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      - name: Compute release name and tag
+        id: release_info
+        run: |
+          if [[ $IS_NIGHTLY ]]; then
+            echo "::set-output name=tag_name::nightly-${GITHUB_SHA}"
+            echo "::set-output name=release_name::Nightly ($(date '+%Y-%m-%d'))"
+          else
+            echo "::set-output name=tag_name::${GITHUB_REF_NAME}"
+            echo "::set-output name=release_name::${GITHUB_REF_NAME}"
+          fi
+      # Creates a `nightly-SHA` tag for this specific nightly
+      # This tag is used for this specific nightly version's release
+      # which allows users to roll back. It is also used to build
+      # the changelog.
+      - name: Create build-specific nightly tag
+        if: ${{ env.IS_NIGHTLY }}
+        uses: actions/github-script@v5
+        env:
+          TAG_NAME: ${{ steps.release_info.outputs.tag_name }}
+        with:
+          script: |
+            const createTag = require('./.github/scripts/create-tag.js')
+            await createTag({ github, context }, process.env.TAG_NAME)
+
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.job.target }}
+          override: true
 
   build:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})
     runs-on: ${{ matrix.job.os }}
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -53,29 +93,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - name: Compute release name and tag
-        id: release_info
-        run: |
-          if [[ $IS_NIGHTLY ]]; then
-            echo "::set-output name=tag_name::nightly-${GITHUB_SHA}"
-            echo "::set-output name=release_name::Nightly ($(date '+%Y-%m-%d'))"
-          else
-            echo "::set-output name=tag_name::${GITHUB_REF_NAME}"
-            echo "::set-output name=release_name::${GITHUB_REF_NAME}"
-          fi
-      # Creates a `nightly-SHA` tag for this specific nightly
-      # This tag is used for this specific nightly version's release
-      # which allows users to roll back. It is also used to build
-      # the changelog.
-      - name: Create build-specific nightly tag
-        if: ${{ env.IS_NIGHTLY }}
-        uses: actions/github-script@v5
-        env:
-          TAG_NAME: ${{ steps.release_info.outputs.tag_name }}
-        with:
-          script: |
-            const createTag = require('./.github/scripts/create-tag.js')
-            await createTag({ github, context }, process.env.TAG_NAME)
 
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
